@@ -3,6 +3,8 @@ from actionweaver import RequireNext, action
 from actionweaver.llms.azure.chat import ChatCompletion
 from actionweaver.llms.openai.tools.chat import OpenAIChatCompletion
 from actionweaver.llms.openai.functions.tokens import TokenUsageTracker
+import requests
+from langchain.docstore.document import Document
 from langchain.vectorstores import MongoDBAtlasVectorSearch
 from langchain.embeddings import GPT4AllEmbeddings
 from langchain.document_loaders import PlaywrightURLLoader
@@ -266,14 +268,59 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: read_url")
         with self.st.spinner(f"```Analyzing the content in {urls}```"):
-            loader = PlaywrightURLLoader(
-                urls=urls, remove_selectors=["header", "footer"]
-            )
-            documents = loader.load_and_split(self.text_splitter)
-            if self.rag_config["summarize_chunks"]:
-                documents = self.summarize_chunks(documents)
-            self.index.add_documents(documents)
-            return f"```Contents in URLs {urls} have been successfully ingested (vector embeddings + content).```"
+            # ⚡ Bolt: Implemented a hybrid URL loading strategy for performance.
+            # First, attempt to fetch the URL using requests for a significant speed boost with static sites.
+            # If the content is empty or the request fails, fall back to the more robust PlaywrightURLLoader
+            # to handle JavaScript-heavy dynamic sites.
+
+            documents = []
+            playwright_urls = []
+            for url in urls:
+                try:
+                    response = requests.get(url)
+                    response.raise_for_status()
+                    soup = BeautifulSoup(response.content, "html.parser")
+
+                    if soup.body and soup.body.get_text(strip=True):
+                        if soup.header:
+                            soup.header.decompose()
+                        if soup.footer:
+                            soup.footer.decompose()
+
+                        documents.append(
+                            Document(
+                                page_content=soup.get_text(),
+                                metadata={"source": url},
+                            )
+                        )
+                    else:
+                        # If the body is empty, it's likely a JS-heavy site.
+                        # Add to the list to be processed by Playwright.
+                        playwright_urls.append(url)
+                except requests.exceptions.RequestException as e:
+                    self.logger.warning(f"requests failed for {url}: {e}. Falling back to Playwright.")
+                    playwright_urls.append(url)
+
+            if playwright_urls:
+                try:
+                    loader = PlaywrightURLLoader(
+                        urls=playwright_urls, remove_selectors=["header", "footer"]
+                    )
+                    playwright_docs = loader.load()
+                    documents.extend(playwright_docs)
+                except Exception as e:
+                    self.logger.error(f"PlaywrightURLLoader failed for URLs {playwright_urls}: {e}")
+
+            if documents:
+                documents = self.text_splitter.split_documents(documents)
+
+                if self.rag_config["summarize_chunks"]:
+                    documents = self.summarize_chunks(documents)
+
+                self.index.add_documents(documents)
+                return f"```Contents in URLs {urls} have been successfully ingested (vector embeddings + content).```"
+            else:
+                return f"```Could not read any content from the provided URLs: {urls}.```"
 
     @action("show_messages", stop=True)
     def show_messages(self) -> str:
