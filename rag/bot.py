@@ -16,6 +16,7 @@ from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
 import pandas as pd
+import requests
 from tabulate import tabulate
 import utils
 import vector_search
@@ -266,10 +267,25 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: read_url")
         with self.st.spinner(f"```Analyzing the content in {urls}```"):
-            loader = PlaywrightURLLoader(
-                urls=urls, remove_selectors=["header", "footer"]
-            )
-            documents = loader.load_and_split(self.text_splitter)
+            documents = []
+            for url in urls:
+                try:
+                    # ⚡ Bolt Optimization: Use requests for a fast initial check.
+                    # This is much faster than Playwright for static sites.
+                    response = requests.get(url)
+                    response.raise_for_status()  # Raise an exception for bad status codes
+                    soup = BeautifulSoup(response.content, "html.parser")
+                    # Remove script and style elements
+                    for script in soup(["script", "style"]):
+                        script.extract()
+                    text = soup.get_text()
+                    documents.extend(self.text_splitter.create_documents([text]))
+                except Exception:
+                    # Fallback to Playwright for dynamic sites or if requests fails
+                    loader = PlaywrightURLLoader(
+                        urls=[url], remove_selectors=["header", "footer"]
+                    )
+                    documents.extend(loader.load_and_split(self.text_splitter))
             if self.rag_config["summarize_chunks"]:
                 documents = self.summarize_chunks(documents)
             self.index.add_documents(documents)
