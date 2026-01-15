@@ -8,17 +8,20 @@ from langchain.embeddings import GPT4AllEmbeddings
 from langchain.document_loaders import PlaywrightURLLoader
 from langchain.document_loaders import BraveSearchLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.docstore.document import Document
+import requests
 import params
 import json
 import os
 import pymongo
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
-from bs4 import BeautifulSoup
 import pandas as pd
+from bs4 import BeautifulSoup
 from tabulate import tabulate
 import utils
 import vector_search
+import contextlib
 
 os.environ["OPENAI_API_KEY"] = params.OPENAI_API_KEY
 os.environ["OPENAI_API_VERSION"] = params.OPENAI_API_VERSION
@@ -27,6 +30,7 @@ os.environ["OPENAI_API_TYPE"] = params.OPENAI_TYPE
 MONGODB_URI = params.MONGODB_URI
 DATABASE_NAME = params.DATABASE_NAME
 COLLECTION_NAME = params.COLLECTION_NAME
+MIN_STATIC_CONTENT_LENGTH = 250
 
 class UserProxyAgent:
     def __init__(self, logger, st):
@@ -265,15 +269,60 @@ class RAGAgent(UserProxyAgent):
             A message indicating successful reading of content from the provided URLs.
         """
         utils.print_log("Action: read_url")
-        with self.st.spinner(f"```Analyzing the content in {urls}```"):
-            loader = PlaywrightURLLoader(
-                urls=urls, remove_selectors=["header", "footer"]
-            )
-            documents = loader.load_and_split(self.text_splitter)
-            if self.rag_config["summarize_chunks"]:
-                documents = self.summarize_chunks(documents)
-            self.index.add_documents(documents)
-            return f"```Contents in URLs {urls} have been successfully ingested (vector embeddings + content).```"
+
+        # Create a context manager that does nothing if self.st is None
+        spinner_context = self.st.spinner(f"```Analyzing the content in {urls}```") if self.st else contextlib.suppress()
+
+        with spinner_context:
+            documents = []
+            for url in urls:
+                try:
+                    # ⚡ Bolt: Optimization - Fast path for static sites
+                    # Use lightweight requests for static sites, fallback to Playwright for dynamic sites.
+                    # This avoids launching a full browser for simple pages, speeding up ingestion.
+                    response = requests.get(url, timeout=15)
+                    response.raise_for_status()
+                    html_content = response.text
+
+                    soup = BeautifulSoup(html_content, "html.parser")
+                    # Basic selector removal, can be improved
+                    for selector in ["header", "footer", "nav", "script", "style"]:
+                        for s in soup.select(selector):
+                            s.decompose()
+
+                    page_content = soup.get_text(separator=' ', strip=True)
+
+                    # If content is too short, it's likely a SPA/dynamic page, fallback to Playwright
+                    if len(page_content) < MIN_STATIC_CONTENT_LENGTH:
+                        raise ValueError("Content too short, likely a dynamic page.")
+
+                    doc = Document(page_content=page_content, metadata={"source": url})
+                    documents.append(doc)
+                    utils.print_log(f"Successfully loaded {url} with requests")
+
+                except (requests.exceptions.RequestException, ValueError) as e:
+                    utils.print_log(f"requests failed for {url}, falling back to Playwright: {e}")
+                    loader = PlaywrightURLLoader(
+                        urls=[url], remove_selectors=["header", "footer"]
+                    )
+                    # 🐞 Bug Fix: Use .load() instead of .load_and_split()
+                    # This prevents documents from the fallback path from being split twice.
+                    # All documents are now collected raw and split uniformly below.
+                    docs = loader.load()
+                    documents.extend(docs)
+
+            # Now, process all collected documents
+            if documents:
+                # Splitting documents collected from requests
+                processed_documents = self.text_splitter.split_documents(documents)
+
+                if self.rag_config["summarize_chunks"]:
+                    processed_documents = self.summarize_chunks(processed_documents)
+
+                self.index.add_documents(processed_documents)
+                return f"```Contents in URLs {urls} have been successfully ingested (vector embeddings + content).```"
+            else:
+                return f"```Could not read any content from URLs {urls}.```"
 
     @action("show_messages", stop=True)
     def show_messages(self) -> str:
