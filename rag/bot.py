@@ -8,6 +8,7 @@ from langchain.embeddings import GPT4AllEmbeddings
 from langchain.document_loaders import PlaywrightURLLoader
 from langchain.document_loaders import BraveSearchLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.docstore.document import Document
 import params
 import json
 import os
@@ -19,6 +20,7 @@ import pandas as pd
 from tabulate import tabulate
 import utils
 import vector_search
+import requests
 
 os.environ["OPENAI_API_KEY"] = params.OPENAI_API_KEY
 os.environ["OPENAI_API_VERSION"] = params.OPENAI_API_VERSION
@@ -27,6 +29,7 @@ os.environ["OPENAI_API_TYPE"] = params.OPENAI_TYPE
 MONGODB_URI = params.MONGODB_URI
 DATABASE_NAME = params.DATABASE_NAME
 COLLECTION_NAME = params.COLLECTION_NAME
+MIN_CONTENT_LENGTH = 200
 
 class UserProxyAgent:
     def __init__(self, logger, st):
@@ -266,13 +269,48 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: read_url")
         with self.st.spinner(f"```Analyzing the content in {urls}```"):
-            loader = PlaywrightURLLoader(
-                urls=urls, remove_selectors=["header", "footer"]
-            )
-            documents = loader.load_and_split(self.text_splitter)
+            documents = []
+            for url in urls:
+                try:
+                    # ⚡ Bolt: Use lightweight requests for static sites, fallback to Playwright for dynamic ones
+                    response = requests.get(url, timeout=15)
+                    response.raise_for_status()
+
+                    soup = BeautifulSoup(response.content, "html.parser")
+
+                    # Remove header and footer
+                    for selector in ["header", "footer"]:
+                        for s in soup.select(selector):
+                            s.decompose()
+
+                    # Get main content
+                    main_content = soup.select_one("main") or soup.select_one("article") or soup.body
+                    text = main_content.get_text(separator='\n', strip=True)
+
+                    # ⚡ Bolt: If text is too short, it's likely an SPA. Raise an exception to fallback.
+                    if len(text) < MIN_CONTENT_LENGTH:
+                        raise ValueError("Content too short, likely a Single Page Application shell.")
+
+                    documents.append(Document(page_content=text, metadata={"source": url}))
+                except (requests.RequestException, ValueError) as e:
+                    # Fallback to Playwright for dynamic sites
+                    utils.print_log(f"Static request failed for {url}: {e}. Falling back to Playwright.")
+                    loader = PlaywrightURLLoader(
+                        urls=[url], remove_selectors=["header", "footer"]
+                    )
+                    docs = loader.load()
+                    documents.extend(docs)
+
+            if not documents:
+                return "Could not read any content from the provided URLs."
+
+            # Split documents into chunks
+            docs_to_add = self.text_splitter.split_documents(documents)
+
             if self.rag_config["summarize_chunks"]:
-                documents = self.summarize_chunks(documents)
-            self.index.add_documents(documents)
+                docs_to_add = self.summarize_chunks(docs_to_add)
+
+            self.index.add_documents(docs_to_add)
             return f"```Contents in URLs {urls} have been successfully ingested (vector embeddings + content).```"
 
     @action("show_messages", stop=True)
