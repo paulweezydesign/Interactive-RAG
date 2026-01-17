@@ -12,6 +12,7 @@ import params
 import json
 import os
 import pymongo
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
@@ -27,6 +28,7 @@ os.environ["OPENAI_API_TYPE"] = params.OPENAI_TYPE
 MONGODB_URI = params.MONGODB_URI
 DATABASE_NAME = params.DATABASE_NAME
 COLLECTION_NAME = params.COLLECTION_NAME
+MIN_CONTENT_LENGTH = 200
 
 class UserProxyAgent:
     def __init__(self, logger, st):
@@ -266,13 +268,45 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: read_url")
         with self.st.spinner(f"```Analyzing the content in {urls}```"):
-            loader = PlaywrightURLLoader(
-                urls=urls, remove_selectors=["header", "footer"]
-            )
-            documents = loader.load_and_split(self.text_splitter)
+            all_documents = []
+            for url in urls:
+            # ⚡ Bolt: This is a performance optimization.
+            # For many websites, a simple HTTP GET request is much faster than
+            # launching a full browser with Playwright. This code block first
+            # tries to fetch the content with `requests`. If it fails or if
+            # the content is too short (likely a SPA shell), it falls back
+            # to the more robust (but slower) PlaywrightURLLoader.
+                try:
+                    response = requests.get(url, timeout=15)
+                    response.raise_for_status()  # Raise an exception for bad status codes
+                    content = response.text
+
+                    if len(content.strip()) > MIN_CONTENT_LENGTH:
+                        self.logger.info(f"Successfully fetched {url} with requests.")
+                        documents = self.text_splitter.create_documents([content])
+                        all_documents.extend(documents)
+
+                    else:
+                        self.logger.info(f"Content from {url} is too short, falling back to Playwright.")
+                        loader = PlaywrightURLLoader(
+                            urls=[url], remove_selectors=["header", "footer"]
+                        )
+                        documents = loader.load_and_split(self.text_splitter)
+                        all_documents.extend(documents)
+
+
+                except requests.exceptions.RequestException as e:
+                    self.logger.warning(f"requests failed for {url}: {e}. Falling back to Playwright.")
+                    loader = PlaywrightURLLoader(
+                        urls=[url], remove_selectors=["header", "footer"]
+                    )
+                    documents = loader.load_and_split(self.text_splitter)
+                    all_documents.extend(documents)
+
+
             if self.rag_config["summarize_chunks"]:
-                documents = self.summarize_chunks(documents)
-            self.index.add_documents(documents)
+                all_documents = self.summarize_chunks(all_documents)
+            self.index.add_documents(all_documents)
             return f"```Contents in URLs {urls} have been successfully ingested (vector embeddings + content).```"
 
     @action("show_messages", stop=True)
