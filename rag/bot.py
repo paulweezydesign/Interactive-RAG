@@ -8,10 +8,12 @@ from langchain.embeddings import GPT4AllEmbeddings
 from langchain.document_loaders import PlaywrightURLLoader
 from langchain.document_loaders import BraveSearchLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.docstore.document import Document
 import params
 import json
 import os
 import pymongo
+import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
@@ -27,6 +29,8 @@ os.environ["OPENAI_API_TYPE"] = params.OPENAI_TYPE
 MONGODB_URI = params.MONGODB_URI
 DATABASE_NAME = params.DATABASE_NAME
 COLLECTION_NAME = params.COLLECTION_NAME
+MIN_CONTENT_LENGTH = 200
+
 
 class UserProxyAgent:
     def __init__(self, logger, st):
@@ -240,6 +244,13 @@ class RAGAgent(UserProxyAgent):
             print(summary)
             doc.page_content = summary   
         return docs
+    def _clean_html(self, html_content: str) -> str:
+        soup = BeautifulSoup(html_content, "html.parser")
+        # Remove script and style tags
+        for script_or_style in soup(["script", "style", "header", "footer"]):
+            script_or_style.extract()
+        return soup.get_text(separator=" ", strip=True)
+
     @action("read_url", stop=True)
     def read_url(self, urls: List[str]):
         """
@@ -266,13 +277,48 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: read_url")
         with self.st.spinner(f"```Analyzing the content in {urls}```"):
-            loader = PlaywrightURLLoader(
-                urls=urls, remove_selectors=["header", "footer"]
-            )
-            documents = loader.load_and_split(self.text_splitter)
+            documents = []
+            fallback_urls = []
+
+            # ⚡ Bolt: First, attempt to fetch content with a lightweight 'requests' call.
+            # This is significantly faster than launching a full browser with Playwright.
+            for url in urls:
+                try:
+                    response = requests.get(url, timeout=15)
+                    response.raise_for_status()
+
+                    content = self._clean_html(response.text)
+
+                    # ⚡ Bolt: If content is too short, it's likely a SPA shell or an error page.
+                    # Add to fallback list for Playwright to handle.
+                    if len(content) < MIN_CONTENT_LENGTH:
+                        fallback_urls.append(url)
+                        continue
+
+                    documents.append(Document(page_content=content, metadata={"source": url}))
+                except requests.RequestException as e:
+                    fallback_urls.append(url)
+
+            # ⚡ Bolt: For URLs that failed or had minimal content, use the heavier Playwright loader.
+            # This ensures we can still handle JavaScript-heavy sites (SPAs).
+            if fallback_urls:
+                loader = PlaywrightURLLoader(
+                    urls=fallback_urls, remove_selectors=["header", "footer"]
+                )
+
+                playwright_docs = loader.load()
+                documents.extend(playwright_docs)
+
+            if not documents:
+                return f"Could not read any content from the provided URLs: {urls}"
+
+            # Split and process documents
+            split_documents = self.text_splitter.split_documents(documents)
+
             if self.rag_config["summarize_chunks"]:
-                documents = self.summarize_chunks(documents)
-            self.index.add_documents(documents)
+                split_documents = self.summarize_chunks(split_documents)
+
+            self.index.add_documents(split_documents)
             return f"```Contents in URLs {urls} have been successfully ingested (vector embeddings + content).```"
 
     @action("show_messages", stop=True)
