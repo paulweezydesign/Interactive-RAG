@@ -1,6 +1,9 @@
 # For Google Search
 SERPAPI_KEY = ""
 
+# For Brave Search
+BRAVE_API_KEY = ""
+
 # MongoDB 
 MONGODB_URI = ""
 DATABASE_NAME = "genai"

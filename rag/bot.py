@@ -6,15 +6,12 @@ from actionweaver.llms.openai.functions.tokens import TokenUsageTracker
 from langchain.vectorstores import MongoDBAtlasVectorSearch
 from langchain.embeddings import GPT4AllEmbeddings
 from langchain.document_loaders import PlaywrightURLLoader
-from langchain.document_loaders import BraveSearchLoader
+from langchain_community.document_loaders import BraveSearchLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import params
 import json
 import os
 import pymongo
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from bs4 import BeautifulSoup
 import pandas as pd
 from tabulate import tabulate
 import utils
@@ -335,30 +332,16 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: search_web")
         with self.st.spinner(f"Searching '{query}'..."):
-            # Use the headless browser to search the web
-            self.browser.get(utils.encode_google_search(query))
-            html = self.browser.page_source
-            soup = BeautifulSoup(html, "html.parser")
-            search_results = soup.find_all("div", {"class": "g"})
+            # ⚡ Bolt: This is a performance optimization.
+            # The previous implementation used a slow and resource-intensive
+            # combination of Selenium and BeautifulSoup to scrape Google search results.
+            # This has been replaced with the BraveSearchLoader, which uses the
+            # Brave Search API for much faster and more reliable results.
+            # This reduces latency and improves the user experience.
+            loader = BraveSearchLoader(query=query, api_key=params.BRAVE_API_KEY)
+            results = loader.load()
 
-            results = []
-            links = []
-            for i, result in enumerate(search_results):
-                if result.find("h3") is not None:
-                    if (
-                        result.find("a")["href"] not in links
-                        and "https://" in result.find("a")["href"]
-                    ):
-                        links.append(result.find("a")["href"])
-                        results.append(
-                            {
-                                "title": utils.clean_text(result.find("h3").text),
-                                "link": str(result.find("a")["href"]),
-                            }
-                        )
-
-            df = pd.DataFrame(results)
-            df = df.iloc[1:, :] # remove i column
+            df = pd.DataFrame([doc.metadata for doc in results], columns=["title", "link"])
             return f"Here is what I found in the web for '{query}':\n{df.to_markdown()}\n\n"
 
     @action("remove_source", stop=True)
