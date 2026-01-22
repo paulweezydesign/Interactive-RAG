@@ -6,15 +6,12 @@ from actionweaver.llms.openai.functions.tokens import TokenUsageTracker
 from langchain.vectorstores import MongoDBAtlasVectorSearch
 from langchain.embeddings import GPT4AllEmbeddings
 from langchain.document_loaders import PlaywrightURLLoader
-from langchain.document_loaders import BraveSearchLoader
+from langchain_community.document_loaders import BraveSearchLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import params
 import json
 import os
 import pymongo
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from bs4 import BeautifulSoup
 import pandas as pd
 from tabulate import tabulate
 import utils
@@ -109,12 +106,6 @@ class UserProxyAgent:
              """,
             },
         ]
-        # Browser config
-        browser_options = Options()
-        browser_options.headless = True
-        browser_options.add_argument("--headless")
-        browser_options.add_argument("--disable-gpu")
-        self.browser = webdriver.Chrome(options=browser_options)
 
         # Initialize logger
         self.logger = logger
@@ -322,7 +313,7 @@ class RAGAgent(UserProxyAgent):
     
 
     @action("search_web", stop=True)
-    def search_web(self, query: str) -> List:
+    def search_web(self, query: str) -> str:
         """
         Invoke this if you need to search the web.
         [EXAMPLE]
@@ -331,34 +322,27 @@ class RAGAgent(UserProxyAgent):
         Args:
             query (str): The user's query
         Returns:
-            str: Text with the Google Search results
+            str: Text with the Brave Search results
         """
         utils.print_log("Action: search_web")
         with self.st.spinner(f"Searching '{query}'..."):
-            # Use the headless browser to search the web
-            self.browser.get(utils.encode_google_search(query))
-            html = self.browser.page_source
-            soup = BeautifulSoup(html, "html.parser")
-            search_results = soup.find_all("div", {"class": "g"})
+            # This is a performance optimization to use an API instead of a headless browser
+            loader = BraveSearchLoader(query=query, api_key=params.BRAVE_API_KEY)
+            docs = loader.load()
+
+            if not docs:
+                return f"Sorry, I couldn't find any results for '{query}'."
 
             results = []
-            links = []
-            for i, result in enumerate(search_results):
-                if result.find("h3") is not None:
-                    if (
-                        result.find("a")["href"] not in links
-                        and "https://" in result.find("a")["href"]
-                    ):
-                        links.append(result.find("a")["href"])
-                        results.append(
-                            {
-                                "title": utils.clean_text(result.find("h3").text),
-                                "link": str(result.find("a")["href"]),
-                            }
-                        )
+            for doc in docs:
+                results.append(
+                    {
+                        "title": doc.metadata.get("title", "No Title"),
+                        "link": doc.metadata.get("link", doc.metadata.get("source", "No Link")),
+                    }
+                )
 
             df = pd.DataFrame(results)
-            df = df.iloc[1:, :] # remove i column
             return f"Here is what I found in the web for '{query}':\n{df.to_markdown()}\n\n"
 
     @action("remove_source", stop=True)
