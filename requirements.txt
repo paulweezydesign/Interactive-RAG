@@ -123,3 +123,4 @@ wcwidth==0.2.10
 wrapt==1.16.0
 yarl==1.9.2
 zipp==3.17.0
+langchain-community
