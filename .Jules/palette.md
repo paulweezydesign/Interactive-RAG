@@ -1,0 +1,3 @@
+## 2024-01-25 - Silent UI Failure on Missing API Keys
+**Learning:** The Streamlit application fails silently if required API keys (e.g., OpenAI, MongoDB) are not provided. The application runs without errors in the log, but the UI does not render completely, preventing any user interaction. This is a critical UX issue as it provides no feedback to the user or developer about the root cause of the problem.
+**Action:** When verifying frontend changes, if the UI doesn't render as expected and there are no obvious errors, the first step should be to check for the presence of all required API keys. For future UX improvements, I should consider adding a visible error message to the UI when essential keys are missing.
