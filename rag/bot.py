@@ -6,23 +6,20 @@ from actionweaver.llms.openai.functions.tokens import TokenUsageTracker
 from langchain.vectorstores import MongoDBAtlasVectorSearch
 from langchain.embeddings import GPT4AllEmbeddings
 from langchain.document_loaders import PlaywrightURLLoader
-from langchain.document_loaders import BraveSearchLoader
+from langchain_community.document_loaders import BraveSearchLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import params
 import json
 import os
 import pymongo
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
-import pandas as pd
-from tabulate import tabulate
 import utils
 import vector_search
 
 os.environ["OPENAI_API_KEY"] = params.OPENAI_API_KEY
 os.environ["OPENAI_API_VERSION"] = params.OPENAI_API_VERSION
 os.environ["OPENAI_API_TYPE"] = params.OPENAI_TYPE
+os.environ["BRAVE_API_KEY"] = params.BRAVE_API_KEY
 
 MONGODB_URI = params.MONGODB_URI
 DATABASE_NAME = params.DATABASE_NAME
@@ -109,13 +106,6 @@ class UserProxyAgent:
              """,
             },
         ]
-        # Browser config
-        browser_options = Options()
-        browser_options.headless = True
-        browser_options.add_argument("--headless")
-        browser_options.add_argument("--disable-gpu")
-        self.browser = webdriver.Chrome(options=browser_options)
-
         # Initialize logger
         self.logger = logger
 
@@ -289,15 +279,28 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: show_messages")
         messages = self.st.session_state.messages
-        messages = [{"message": json.dumps(message)} for message in messages if message["role"] != "system"]
         
-        df = pd.DataFrame(messages)
-        if messages:
-            result = f"Chat history [{len(messages)}]:\n"
-            result += "<div style='text-align:left'>"+df.to_html()+"</div>"
-            return result
-        else:
+        # Filter out system messages
+        user_messages = [msg for msg in messages if msg["role"] != "system"]
+
+        if not user_messages:
             return "No chat history found."
+
+        # Manually build the HTML table
+        html_table = "<table>\n"
+        html_table += "  <thead>\n"
+        html_table += "    <tr><th>Role</th><th>Content</th></tr>\n"
+        html_table += "  </thead>\n"
+        html_table += "  <tbody>\n"
+        for msg in user_messages:
+            html_table += f"    <tr><td>{msg['role']}</td><td>{msg['content']}</td></tr>\n"
+        html_table += "  </tbody>\n"
+        html_table += "</table>"
+
+        result = f"Chat history [{len(user_messages)}]:\n"
+        result += f"<div style='text-align:left'>{html_table}</div>"
+
+        return result
 
 
     @action("reset_messages", stop=True)
@@ -322,7 +325,7 @@ class RAGAgent(UserProxyAgent):
     
 
     @action("search_web", stop=True)
-    def search_web(self, query: str) -> List:
+    def search_web(self, query: str) -> str:
         """
         Invoke this if you need to search the web.
         [EXAMPLE]
@@ -335,31 +338,26 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: search_web")
         with self.st.spinner(f"Searching '{query}'..."):
-            # Use the headless browser to search the web
-            self.browser.get(utils.encode_google_search(query))
-            html = self.browser.page_source
-            soup = BeautifulSoup(html, "html.parser")
-            search_results = soup.find_all("div", {"class": "g"})
+            # Use BraveSearchLoader for a faster, API-based search
+            loader = BraveSearchLoader(query=query)
+            documents = loader.load()
 
+            # Format the results into a markdown table
             results = []
-            links = []
-            for i, result in enumerate(search_results):
-                if result.find("h3") is not None:
-                    if (
-                        result.find("a")["href"] not in links
-                        and "https://" in result.find("a")["href"]
-                    ):
-                        links.append(result.find("a")["href"])
-                        results.append(
-                            {
-                                "title": utils.clean_text(result.find("h3").text),
-                                "link": str(result.find("a")["href"]),
-                            }
-                        )
+            for doc in documents:
+                results.append({
+                    "title": doc.metadata.get('title', 'N/A'),
+                    "link": doc.metadata.get('source', 'N/A'),
+                    "snippet": doc.page_content
+                })
 
-            df = pd.DataFrame(results)
-            df = df.iloc[1:, :] # remove i column
-            return f"Here is what I found in the web for '{query}':\n{df.to_markdown()}\n\n"
+            # Convert to markdown table format
+            markdown_output = "| Title | Link | Snippet |\n"
+            markdown_output += "|---|---|---|\n"
+            for res in results:
+                markdown_output += f"| {res['title']} | {res['link']} | {res['snippet']} |\n"
+
+            return f"Here is what I found on the web for '{query}':\n{markdown_output}\n\n"
 
     @action("remove_source", stop=True)
     def remove_source(self, urls: List[str]) -> str:
@@ -410,14 +408,20 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: get_sources_list")
         sources = self.collection.distinct("source")
-        sources = [{"source": source} for source in sources]
-        df = pd.DataFrame(sources)
-        if sources:
-            result = f"Available Sources [{len(sources)}]:\n"
-            result += df.to_markdown()
-            return result
-        else:
+
+        if not sources:
             return "No sources found."
+
+        # Manually build the markdown table
+        markdown_table = "| Source |\n"
+        markdown_table += "|---|\n"
+        for source in sources:
+            markdown_table += f"| {source} |\n"
+
+        result = f"Available Sources [{len(sources)}]:\n"
+        result += markdown_table
+
+        return result
 
     @action(name="answer_question", stop=True)
     def answer_question(self, query: str):

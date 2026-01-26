@@ -14,3 +14,6 @@ OPENAI_TYPE = "azure"
 OPENAI_API_VERSION = "2023-10-01-preview"
 OPENAI_AZURE_ENDPOINT = "https://.openai.azure.com/"
 OPENAI_AZURE_DEPLOYMENT = ""
+
+# If using Brave for Search
+BRAVE_API_KEY = ""
