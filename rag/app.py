@@ -52,11 +52,12 @@ if prompt := st.chat_input(placeholder="What's up"):
         st.markdown(prompt)
 
     utils.format_and_print_user_input(prompt)
-    response = agent(prompt)
 
     # Display assistant response in chat message container
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
+        message_placeholder.markdown("Thinking...")
+        response = agent(prompt)
         full_response = ""
 
         if type(response) == str:
