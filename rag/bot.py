@@ -6,20 +6,17 @@ from actionweaver.llms.openai.functions.tokens import TokenUsageTracker
 from langchain.vectorstores import MongoDBAtlasVectorSearch
 from langchain.embeddings import GPT4AllEmbeddings
 from langchain.document_loaders import PlaywrightURLLoader
-from langchain.document_loaders import BraveSearchLoader
+from langchain_community.document_loaders import BraveSearchLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 import params
 import json
 import os
 import pymongo
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from bs4 import BeautifulSoup
-import pandas as pd
 from tabulate import tabulate
 import utils
 import vector_search
 
+os.environ["BRAVE_API_KEY"] = params.BRAVE_API_KEY
 os.environ["OPENAI_API_KEY"] = params.OPENAI_API_KEY
 os.environ["OPENAI_API_VERSION"] = params.OPENAI_API_VERSION
 os.environ["OPENAI_API_TYPE"] = params.OPENAI_TYPE
@@ -109,13 +106,6 @@ class UserProxyAgent:
              """,
             },
         ]
-        # Browser config
-        browser_options = Options()
-        browser_options.headless = True
-        browser_options.add_argument("--headless")
-        browser_options.add_argument("--disable-gpu")
-        self.browser = webdriver.Chrome(options=browser_options)
-
         # Initialize logger
         self.logger = logger
 
@@ -289,12 +279,16 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: show_messages")
         messages = self.st.session_state.messages
-        messages = [{"message": json.dumps(message)} for message in messages if message["role"] != "system"]
+        messages = [message for message in messages if message["role"] != "system"]
         
-        df = pd.DataFrame(messages)
         if messages:
             result = f"Chat history [{len(messages)}]:\n"
-            result += "<div style='text-align:left'>"+df.to_html()+"</div>"
+            result += "<div style='text-align:left'><table>"
+            result += "<thead><tr><th>message</th></tr></thead>"
+            result += "<tbody>"
+            for message in messages:
+                result += f"<tr><td>{json.dumps(message)}</td></tr>"
+            result += "</tbody></table></div>"
             return result
         else:
             return "No chat history found."
@@ -336,30 +330,16 @@ class RAGAgent(UserProxyAgent):
         utils.print_log("Action: search_web")
         with self.st.spinner(f"Searching '{query}'..."):
             # Use the headless browser to search the web
-            self.browser.get(utils.encode_google_search(query))
-            html = self.browser.page_source
-            soup = BeautifulSoup(html, "html.parser")
-            search_results = soup.find_all("div", {"class": "g"})
+            loader = BraveSearchLoader(query=query)
+            docs = loader.load()
 
-            results = []
-            links = []
-            for i, result in enumerate(search_results):
-                if result.find("h3") is not None:
-                    if (
-                        result.find("a")["href"] not in links
-                        and "https://" in result.find("a")["href"]
-                    ):
-                        links.append(result.find("a")["href"])
-                        results.append(
-                            {
-                                "title": utils.clean_text(result.find("h3").text),
-                                "link": str(result.find("a")["href"]),
-                            }
-                        )
-
-            df = pd.DataFrame(results)
-            df = df.iloc[1:, :] # remove i column
-            return f"Here is what I found in the web for '{query}':\n{df.to_markdown()}\n\n"
+            # Format the results into a markdown table
+            result = f"Here is what I found in the web for '{query}':\n"
+            result += "| title | link | snippet |\n"
+            result += "| --- | --- | --- |\n"
+            for doc in docs:
+                result += f"| {doc.metadata['title']} | {doc.metadata['link']} | {doc.page_content} |\n"
+            return result
 
     @action("remove_source", stop=True)
     def remove_source(self, urls: List[str]) -> str:
@@ -410,11 +390,12 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: get_sources_list")
         sources = self.collection.distinct("source")
-        sources = [{"source": source} for source in sources]
-        df = pd.DataFrame(sources)
         if sources:
             result = f"Available Sources [{len(sources)}]:\n"
-            result += df.to_markdown()
+            result += "| source |\n"
+            result += "| --- |\n"
+            for source in sources:
+                result += f"| {source} |\n"
             return result
         else:
             return "No sources found."
