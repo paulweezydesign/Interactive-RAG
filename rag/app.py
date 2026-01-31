@@ -4,7 +4,12 @@ import streamlit as st
 from bot import RAGAgent
 import utils
 
-st.set_page_config(layout="wide")
+st.set_page_config(
+    page_title="Interactive RAG Bot 🤖",
+    page_icon="🤖",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 logging.basicConfig(
     filename="app.log",
@@ -24,15 +29,37 @@ def get_agent():
     return RAGAgent(logger, st)
 
 
-font_size = 30
-
+st.title("🤖 Interactive RAG Bot")
 st.markdown(
-    f'<span style="font-size:{font_size}px;">Interactive RAG powered by MongoDB and ActionWeaver</span>',
-    unsafe_allow_html=True,
+    """
+    Build and interact with your RAG pipeline in real-time.
+    Powered by **MongoDB Atlas** and **ActionWeaver**.
+    """
 )
-st.markdown("----")
+st.divider()
 
 agent = get_agent()
+
+with st.sidebar:
+    st.header("About")
+    st.info(
+        """
+        This bot can:
+        - 🔍 **Answer questions** using its knowledge base.
+        - 🌐 **Search the web** if it doesn't know the answer.
+        - 📚 **Learn from URLs** (just paste them!).
+        - ⚙️ **Configure RAG** settings on the fly.
+        """
+    )
+
+    st.header("Settings")
+    if st.button("🗑️ Clear Chat History", use_container_width=True):
+        st.session_state.messages = []
+        agent.messages = agent.init_messages
+        st.rerun()
+
+    st.header("Current RAG Config")
+    st.json(agent.rag_config)
 
 # Initialize chat history
 if "messages" not in st.session_state:
@@ -44,7 +71,7 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # Accept user input
-if prompt := st.chat_input(placeholder="What's up"):
+if prompt := st.chat_input(placeholder="Ask a question, add a URL, or configure RAG..."):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     # Display user message in chat message container
