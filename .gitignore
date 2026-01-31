@@ -24,6 +24,9 @@ dist/
 # Ignore local configurations
 .env
 
+# Ignore log files
+*.log
+
 # Ignore documentation generated files
 docs/_build/
 

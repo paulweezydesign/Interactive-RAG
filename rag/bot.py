@@ -1,21 +1,16 @@
 from typing import List
-from actionweaver import RequireNext, action
+from actionweaver import action
 from actionweaver.llms.azure.chat import ChatCompletion
 from actionweaver.llms.openai.tools.chat import OpenAIChatCompletion
 from actionweaver.llms.openai.functions.tokens import TokenUsageTracker
-from langchain.vectorstores import MongoDBAtlasVectorSearch
-from langchain.embeddings import GPT4AllEmbeddings
-from langchain.document_loaders import PlaywrightURLLoader
-from langchain.document_loaders import BraveSearchLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import MongoDBAtlasVectorSearch
+from langchain_community.embeddings import GPT4AllEmbeddings
+from langchain_community.document_loaders import PlaywrightURLLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import params
-import json
 import os
 import pymongo
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from bs4 import BeautifulSoup
-import pandas as pd
+import html
 from tabulate import tabulate
 import utils
 import vector_search
@@ -109,13 +104,6 @@ class UserProxyAgent:
              """,
             },
         ]
-        # Browser config
-        browser_options = Options()
-        browser_options.headless = True
-        browser_options.add_argument("--headless")
-        browser_options.add_argument("--disable-gpu")
-        self.browser = webdriver.Chrome(options=browser_options)
-
         # Initialize logger
         self.logger = logger
 
@@ -197,7 +185,7 @@ class RAGAgent(UserProxyAgent):
             A message indicating success
         """
         utils.print_log("Action: iRAG")
-        with self.st.spinner(f"Changing RAG configuration..."):
+        with self.st.spinner("Changing RAG configuration..."):
             if num_sources > 0:
                 self.rag_config["num_sources"] = int(num_sources)
             else:
@@ -206,7 +194,7 @@ class RAGAgent(UserProxyAgent):
                 self.rag_config["source_chunk_size"] = int(chunk_size)
             else:
                 self.rag_config["source_chunk_size"] = 1000
-            if unique_sources == True:
+            if unique_sources:
                 self.rag_config["unique"] = True
             else:
                 self.rag_config["unique"] = False
@@ -289,12 +277,14 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: show_messages")
         messages = self.st.session_state.messages
-        messages = [{"message": json.dumps(message)} for message in messages if message["role"] != "system"]
+        messages = [message for message in messages if message["role"] != "system"]
         
-        df = pd.DataFrame(messages)
         if messages:
             result = f"Chat history [{len(messages)}]:\n"
-            result += "<div style='text-align:left'>"+df.to_html()+"</div>"
+            # Manually build HTML table safely using tabulate and html.escape
+            table_data = [[msg['role'], html.escape(msg['content'])] for msg in messages]
+            table_html = tabulate(table_data, headers=["Role", "Message"], tablefmt="html")
+            result += f"<div style='text-align:left'>{table_html}</div>"
             return result
         else:
             return "No chat history found."
@@ -317,7 +307,7 @@ class RAGAgent(UserProxyAgent):
         self.messages = self.init_messages
         self.st.empty()
         self.st.session_state.messages = []
-        return f"Message history successfully reset."
+        return "Message history successfully reset."
 
     
 
@@ -334,32 +324,36 @@ class RAGAgent(UserProxyAgent):
             str: Text with the Google Search results
         """
         utils.print_log("Action: search_web")
+        if not params.SERPAPI_KEY:
+            return "Error: SERPAPI_KEY is missing in params.py. Please provide a valid API key to use the web search feature."
+
         with self.st.spinner(f"Searching '{query}'..."):
-            # Use the headless browser to search the web
-            self.browser.get(utils.encode_google_search(query))
-            html = self.browser.page_source
-            soup = BeautifulSoup(html, "html.parser")
-            search_results = soup.find_all("div", {"class": "g"})
+            # Use SerpApi for faster and more reliable search
+            from serpapi import GoogleSearch
+            search = GoogleSearch({
+                "q": query,
+                "api_key": params.SERPAPI_KEY,
+            })
+            result = search.get_dict()
+            search_results = result.get("organic_results", [])
 
             results = []
-            links = []
-            for i, result in enumerate(search_results):
-                if result.find("h3") is not None:
-                    if (
-                        result.find("a")["href"] not in links
-                        and "https://" in result.find("a")["href"]
-                    ):
-                        links.append(result.find("a")["href"])
-                        results.append(
-                            {
-                                "title": utils.clean_text(result.find("h3").text),
-                                "link": str(result.find("a")["href"]),
-                            }
-                        )
+            for res in search_results:
+                results.append(
+                    {
+                        "title": res.get("title"),
+                        "link": res.get("link"),
+                    }
+                )
 
-            df = pd.DataFrame(results)
-            df = df.iloc[1:, :] # remove i column
-            return f"Here is what I found in the web for '{query}':\n{df.to_markdown()}\n\n"
+            if results:
+                result_str = f"Here is what I found in the web for '{query}':\n"
+                # Safely build Markdown table using tabulate
+                table_data = [[res['title'], res['link']] for res in results]
+                result_str += tabulate(table_data, headers=["Title", "Link"], tablefmt="github")
+                return result_str + "\n\n"
+            else:
+                return f"No results found for '{query}'."
 
     @action("remove_source", stop=True)
     def remove_source(self, urls: List[str]) -> str:
@@ -393,7 +387,7 @@ class RAGAgent(UserProxyAgent):
             str: Text with confirmation
         """
         utils.print_log("Action: remove_sources")
-        with self.st.spinner(f"```Removing all sources ...```"):
+        with self.st.spinner("```Removing all sources ...```"):
             del_result = self.collection.delete_many({})
             return f"```Sources successfully removed.{del_result.deleted_count}```\n"
 
@@ -410,11 +404,13 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: get_sources_list")
         sources = self.collection.distinct("source")
-        sources = [{"source": source} for source in sources]
-        df = pd.DataFrame(sources)
         if sources:
             result = f"Available Sources [{len(sources)}]:\n"
-            result += df.to_markdown()
+            # Safely build Markdown table using tabulate
+            table_data = [[source] for source in sources[:100]]
+            result += tabulate(table_data, headers=["Source"], tablefmt="github")
+            if len(sources) > 100:
+                result += f"\n\n... and {len(sources) - 100} more."
             return result
         else:
             return "No sources found."
@@ -478,7 +474,7 @@ class RAGAgent(UserProxyAgent):
             """
 
             print(PRECISE_PROMPT)
-            SYS_PROMPT = f"""
+            SYS_PROMPT = """
                 You are a helpful AI assistant. USING ONLY THE VERIFIED SOURCES, ANSWER TO THE BEST OF YOUR ABILITY.
             """
             # ReAct Prompt Technique
@@ -496,7 +492,7 @@ class RAGAgent(UserProxyAgent):
             - Action: N/A
 
             """
-            RESPONSE_FORMAT = f"""
+            RESPONSE_FORMAT = """
 [RESPONSE FORMAT]
     - Must be expert quality markdown. 
     - You are a professional technical writer with 30+ years of experience. This is the most important task of your life.
