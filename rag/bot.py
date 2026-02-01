@@ -12,10 +12,7 @@ import params
 import json
 import os
 import pymongo
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
-import pandas as pd
 from tabulate import tabulate
 import utils
 import vector_search
@@ -110,13 +107,9 @@ class UserProxyAgent:
             },
         ]
         # Browser config
-        browser_options = Options()
-        browser_options.headless = True
-        browser_options.add_argument("--headless")
-        browser_options.add_argument("--disable-gpu")
-        self.browser = webdriver.Chrome(options=browser_options)
+        self._browser = None
 
-        # Initialize logger
+    # Initialize logger
         self.logger = logger
 
         # Chunk Ingest Strategy
@@ -160,6 +153,20 @@ class UserProxyAgent:
         
         # streamlit init
         self.st = st
+
+    @property
+    def browser(self):
+        if self._browser is None:
+            # Lazy initialize the browser only when needed
+            from selenium import webdriver
+            from selenium.webdriver.chrome.options import Options
+
+            browser_options = Options()
+            browser_options.headless = True
+            browser_options.add_argument("--headless")
+            browser_options.add_argument("--disable-gpu")
+            self._browser = webdriver.Chrome(options=browser_options)
+        return self._browser
 
 class RAGAgent(UserProxyAgent):
     def preprocess_query(self, query):
@@ -291,10 +298,9 @@ class RAGAgent(UserProxyAgent):
         messages = self.st.session_state.messages
         messages = [{"message": json.dumps(message)} for message in messages if message["role"] != "system"]
         
-        df = pd.DataFrame(messages)
         if messages:
             result = f"Chat history [{len(messages)}]:\n"
-            result += "<div style='text-align:left'>"+df.to_html()+"</div>"
+            result += "<div style='text-align:left'>" + tabulate(messages, tablefmt='html', headers='keys') + "</div>"
             return result
         else:
             return "No chat history found."
@@ -357,9 +363,7 @@ class RAGAgent(UserProxyAgent):
                             }
                         )
 
-            df = pd.DataFrame(results)
-            df = df.iloc[1:, :] # remove i column
-            return f"Here is what I found in the web for '{query}':\n{df.to_markdown()}\n\n"
+            return f"Here is what I found in the web for '{query}':\n{tabulate(results[1:], tablefmt='github', headers='keys')}\n\n"
 
     @action("remove_source", stop=True)
     def remove_source(self, urls: List[str]) -> str:
@@ -411,10 +415,9 @@ class RAGAgent(UserProxyAgent):
         utils.print_log("Action: get_sources_list")
         sources = self.collection.distinct("source")
         sources = [{"source": source} for source in sources]
-        df = pd.DataFrame(sources)
         if sources:
             result = f"Available Sources [{len(sources)}]:\n"
-            result += df.to_markdown()
+            result += tabulate(sources, tablefmt='github', headers='keys')
             return result
         else:
             return "No sources found."

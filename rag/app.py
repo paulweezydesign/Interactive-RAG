@@ -79,7 +79,6 @@ if prompt := st.chat_input(placeholder="What's up"):
             for chunk in response:
                 if isinstance(chunk, str):
                     full_response += chunk
-                    time.sleep(0.05)
                 elif chunk.choices[0].delta.content:
                     full_response += chunk.choices[0].delta.content
 
