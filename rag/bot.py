@@ -235,10 +235,18 @@ class RAGAgent(UserProxyAgent):
         return response
     def summarize_chunks(self, docs):
         utils.print_log("Action: read_url>summarize_chunks")
-        for doc in docs:
-            summary = self.summarize(doc.page_content) 
+        from concurrent.futures import ThreadPoolExecutor
+
+        def process_doc(doc):
+            summary = self.summarize(doc.page_content)
             print(summary)
-            doc.page_content = summary   
+            doc.page_content = summary
+            return doc
+
+        # Parallelize LLM calls for summarization to improve ingestion performance
+        with ThreadPoolExecutor() as executor:
+            docs = list(executor.map(process_doc, docs))
+
         return docs
     @action("read_url", stop=True)
     def read_url(self, urls: List[str]):
