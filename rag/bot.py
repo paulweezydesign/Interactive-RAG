@@ -11,11 +11,12 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 import params
 import json
 import os
+import html
+import requests
 import pymongo
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
-import pandas as pd
 from tabulate import tabulate
 import utils
 import vector_search
@@ -27,6 +28,7 @@ os.environ["OPENAI_API_TYPE"] = params.OPENAI_TYPE
 MONGODB_URI = params.MONGODB_URI
 DATABASE_NAME = params.DATABASE_NAME
 COLLECTION_NAME = params.COLLECTION_NAME
+MIN_CONTENT_LENGTH = 200
 
 class UserProxyAgent:
     def __init__(self, logger, st):
@@ -110,11 +112,7 @@ class UserProxyAgent:
             },
         ]
         # Browser config
-        browser_options = Options()
-        browser_options.headless = True
-        browser_options.add_argument("--headless")
-        browser_options.add_argument("--disable-gpu")
-        self.browser = webdriver.Chrome(options=browser_options)
+        self._browser = None
 
         # Initialize logger
         self.logger = logger
@@ -162,6 +160,16 @@ class UserProxyAgent:
         self.st = st
 
 class RAGAgent(UserProxyAgent):
+    @property
+    def browser(self):
+        if self._browser is None:
+            browser_options = Options()
+            browser_options.headless = True
+            browser_options.add_argument("--headless")
+            browser_options.add_argument("--disable-gpu")
+            self._browser = webdriver.Chrome(options=browser_options)
+        return self._browser
+
     def preprocess_query(self, query):
         # Optional - Implement Pre-Processing for Security.
         # https://dev.to/jasny/protecting-against-prompt-injection-in-gpt-1gf8
@@ -266,13 +274,44 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: read_url")
         with self.st.spinner(f"```Analyzing the content in {urls}```"):
-            loader = PlaywrightURLLoader(
-                urls=urls, remove_selectors=["header", "footer"]
-            )
-            documents = loader.load_and_split(self.text_splitter)
+            documents = []
+            fallback_urls = []
+
+            for url in urls:
+                try:
+                    # Faster fetching strategy using requests
+                    response = requests.get(url, timeout=10)
+                    if response.status_code == 200:
+                        soup = BeautifulSoup(response.text, "html.parser")
+                        # Remove common boilerplate
+                        for tag in soup(["header", "footer", "script", "style", "nav", "aside"]):
+                            tag.decompose()
+
+                        text = soup.get_text(separator=" ", strip=True)
+                        if len(text) > MIN_CONTENT_LENGTH:
+                            # Split text into chunks
+                            docs = self.text_splitter.create_documents([text], metadatas=[{"source": url}])
+                            documents.extend(docs)
+                        else:
+                            fallback_urls.append(url)
+                    else:
+                        fallback_urls.append(url)
+                except Exception:
+                    fallback_urls.append(url)
+
+            # Use Playwright for URLs that need JS or failed with requests
+            if fallback_urls:
+                loader = PlaywrightURLLoader(
+                    urls=fallback_urls, remove_selectors=["header", "footer"]
+                )
+                documents.extend(loader.load_and_split(self.text_splitter))
+
             if self.rag_config["summarize_chunks"]:
                 documents = self.summarize_chunks(documents)
-            self.index.add_documents(documents)
+
+            if documents:
+                self.index.add_documents(documents)
+
             return f"```Contents in URLs {urls} have been successfully ingested (vector embeddings + content).```"
 
     @action("show_messages", stop=True)
@@ -291,10 +330,14 @@ class RAGAgent(UserProxyAgent):
         messages = self.st.session_state.messages
         messages = [{"message": json.dumps(message)} for message in messages if message["role"] != "system"]
         
-        df = pd.DataFrame(messages)
         if messages:
             result = f"Chat history [{len(messages)}]:\n"
-            result += "<div style='text-align:left'>"+df.to_html()+"</div>"
+            # Manually build HTML table to avoid pandas dependency.
+            # Use html.escape for security to prevent XSS.
+            result += "<div style='text-align:left'><table border='1'><thead><tr><th>message</th></tr></thead><tbody>"
+            for m in messages:
+                result += f"<tr><td>{html.escape(m['message'])}</td></tr>"
+            result += "</tbody></table></div>"
             return result
         else:
             return "No chat history found."
@@ -357,9 +400,12 @@ class RAGAgent(UserProxyAgent):
                             }
                         )
 
-            df = pd.DataFrame(results)
-            df = df.iloc[1:, :] # remove i column
-            return f"Here is what I found in the web for '{query}':\n{df.to_markdown()}\n\n"
+            if len(results) > 1:
+                # Use tabulate instead of pandas for markdown table generation
+                # Skip the first result as previously done with df.iloc[1:, :]
+                return f"Here is what I found in the web for '{query}':\n{tabulate(results[1:], headers='keys', tablefmt='github')}\n\n"
+            else:
+                return f"No results found in the web for '{query}'.\n\n"
 
     @action("remove_source", stop=True)
     def remove_source(self, urls: List[str]) -> str:
@@ -411,10 +457,10 @@ class RAGAgent(UserProxyAgent):
         utils.print_log("Action: get_sources_list")
         sources = self.collection.distinct("source")
         sources = [{"source": source} for source in sources]
-        df = pd.DataFrame(sources)
         if sources:
             result = f"Available Sources [{len(sources)}]:\n"
-            result += df.to_markdown()
+            # Use tabulate instead of pandas for markdown table generation
+            result += tabulate(sources, headers='keys', tablefmt='github')
             return result
         else:
             return "No sources found."
