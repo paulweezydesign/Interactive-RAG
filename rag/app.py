@@ -4,7 +4,7 @@ import streamlit as st
 from bot import RAGAgent
 import utils
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Interactive RAG Agent", page_icon="🤖")
 
 logging.basicConfig(
     filename="app.log",
@@ -24,13 +24,9 @@ def get_agent():
     return RAGAgent(logger, st)
 
 
-font_size = 30
-
-st.markdown(
-    f'<span style="font-size:{font_size}px;">Interactive RAG powered by MongoDB and ActionWeaver</span>',
-    unsafe_allow_html=True,
-)
-st.markdown("----")
+st.title("🤖 Interactive RAG Agent")
+st.markdown("Interactive RAG powered by MongoDB and ActionWeaver")
+st.divider()
 
 agent = get_agent()
 
@@ -59,7 +55,7 @@ if prompt := st.chat_input(placeholder="What's up"):
         message_placeholder = st.empty()
         full_response = ""
 
-        if type(response) == str:
+        if isinstance(response, str):
             utils.print_log("Received string response")
             assistant_response = response
 
@@ -84,7 +80,9 @@ if prompt := st.chat_input(placeholder="What's up"):
                     full_response += chunk.choices[0].delta.content
 
                 # Add a blinking cursor to simulate typing
-                message_placeholder.markdown(full_response + "▌", unsafe_allow_html=True)
+                message_placeholder.markdown(
+                    full_response + "▌", unsafe_allow_html=True
+                )
 
             agent.messages.append({"role": "assistant", "content": full_response})
             utils.format_and_print_genai_response(full_response)
