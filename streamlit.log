@@ -1,0 +1,62 @@
+
+Collecting usage statistics. To deactivate, set browser.gatherUsageStats to False.
+
+
+  You can now view your Streamlit app in your browser.
+
+  Network URL: http://192.168.0.2:8501
+  External URL: http://34.46.237.233:8501
+
+2026-02-05 00:42:13.099 Uncaught app exception
+Traceback (most recent call last):
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/streamlit/runtime/scriptrunner/script_runner.py", line 534, in _run_script
+    exec(code, module.__dict__)
+  File "/app/rag/app.py", line 4, in <module>
+    from bot import RAGAgent
+  File "/app/rag/bot.py", line 7, in <module>
+    from langchain.embeddings import GPT4AllEmbeddings
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langchain/embeddings/__init__.py", line 59, in <module>
+    from langchain.embeddings.sagemaker_endpoint import SagemakerEndpointEmbeddings
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langchain/embeddings/sagemaker_endpoint.py", line 3, in <module>
+    from langchain.llms.sagemaker_endpoint import ContentHandlerBase
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langchain/llms/__init__.py", line 22, in <module>
+    from langchain.llms.base import BaseLLM
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langchain/llms/base.py", line 40, in <module>
+    from langchain.callbacks.base import BaseCallbackManager
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langchain/callbacks/__init__.py", line 23, in <module>
+    from langchain.callbacks.manager import (
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langchain/callbacks/manager.py", line 12, in <module>
+    from langchain.callbacks.tracers.wandb import WandbTracer
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langchain/callbacks/tracers/__init__.py", line 3, in <module>
+    from langchain.callbacks.tracers.wandb import WandbTracer
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langchain/callbacks/tracers/wandb.py", line 17, in <module>
+    from langchain.callbacks.tracers.base import BaseTracer
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langchain/callbacks/tracers/base.py", line 3, in <module>
+    from langchain.schema.callbacks.tracers.base import BaseTracer, TracerException
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langchain/schema/callbacks/tracers/base.py", line 14, in <module>
+    from langchain.schema.callbacks.tracers.schemas import Run
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langchain/schema/callbacks/tracers/schemas.py", line 9, in <module>
+    from langsmith.schemas import RunBase as BaseRunV2
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langsmith/__init__.py", line 10, in <module>
+    from langsmith.client import Client
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langsmith/client.py", line 40, in <module>
+    from langsmith import env as ls_env
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langsmith/env.py", line 8, in <module>
+    from langsmith.utils import get_docker_compose_command
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langsmith/utils.py", line 11, in <module>
+    from langsmith import schemas as ls_schemas
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/langsmith/schemas.py", line 61, in <module>
+    class Example(ExampleBase):
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/pydantic/v1/main.py", line 286, in __new__
+    cls.__try_update_forward_refs__()
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/pydantic/v1/main.py", line 808, in __try_update_forward_refs__
+    update_model_forward_refs(cls, cls.__fields__.values(), cls.__config__.json_encoders, localns, (NameError,))
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/pydantic/v1/typing.py", line 554, in update_model_forward_refs
+    update_field_forward_refs(f, globalns=globalns, localns=localns)
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/pydantic/v1/typing.py", line 520, in update_field_forward_refs
+    field.type_ = evaluate_forwardref(field.type_, globalns, localns or None)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.12/lib/python3.12/site-packages/pydantic/v1/typing.py", line 66, in evaluate_forwardref
+    return cast(Any, type_)._evaluate(globalns, localns, set())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: ForwardRef._evaluate() missing 1 required keyword-only argument: 'recursive_guard'
