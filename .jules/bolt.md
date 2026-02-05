@@ -1,0 +1,3 @@
+## 2025-01-24 - [Startup Performance: Lazy Browser and Pandas Removal]
+**Learning:** Initializing heavy dependencies like Selenium WebDrivers in a class constructor can cause major startup delays (~18s). Similarly, importing large libraries like pandas just for simple formatting tasks adds significant overhead (~0.5s-1.2s). Tabulate is a performant and lightweight alternative for both Markdown and HTML table generation, and it handles HTML escaping automatically in HTML mode.
+**Action:** Use lazy initialization (properties) for heavy resources. Avoid pandas for simple formatting; use tabulate instead. Verify tabulate output for security (escaping) and correctness.
