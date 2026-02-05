@@ -1,13 +1,12 @@
 from typing import List
-from actionweaver import RequireNext, action
+from actionweaver import action
 from actionweaver.llms.azure.chat import ChatCompletion
 from actionweaver.llms.openai.tools.chat import OpenAIChatCompletion
 from actionweaver.llms.openai.functions.tokens import TokenUsageTracker
-from langchain.vectorstores import MongoDBAtlasVectorSearch
-from langchain.embeddings import GPT4AllEmbeddings
-from langchain.document_loaders import PlaywrightURLLoader
-from langchain.document_loaders import BraveSearchLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_community.vectorstores import MongoDBAtlasVectorSearch
+from langchain_community.embeddings import GPT4AllEmbeddings
+from langchain_community.document_loaders import PlaywrightURLLoader
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 import params
 import json
 import os
@@ -15,7 +14,6 @@ import pymongo
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from bs4 import BeautifulSoup
-import pandas as pd
 from tabulate import tabulate
 import utils
 import vector_search
@@ -28,6 +26,7 @@ MONGODB_URI = params.MONGODB_URI
 DATABASE_NAME = params.DATABASE_NAME
 COLLECTION_NAME = params.COLLECTION_NAME
 
+
 class UserProxyAgent:
     def __init__(self, logger, st):
         # LLM Config
@@ -36,7 +35,7 @@ class UserProxyAgent:
             "source_chunk_size": 1000,
             "min_rel_score": 0.00,
             "unique": True,
-            "summarize_chunks": False, # disabled by default
+            "summarize_chunks": False,  # disabled by default
         }
         self.action_examples_str = """
 [EXAMPLES]
@@ -110,11 +109,7 @@ class UserProxyAgent:
             },
         ]
         # Browser config
-        browser_options = Options()
-        browser_options.headless = True
-        browser_options.add_argument("--headless")
-        browser_options.add_argument("--disable-gpu")
-        self.browser = webdriver.Chrome(options=browser_options)
+        self._browser = None
 
         # Initialize logger
         self.logger = logger
@@ -157,9 +152,20 @@ class UserProxyAgent:
                 logger=logger,
             )
         self.messages = self.init_messages
-        
+
         # streamlit init
         self.st = st
+
+    @property
+    def browser(self):
+        # Lazy initialization of the browser to improve startup time
+        if self._browser is None:
+            browser_options = Options()
+            browser_options.add_argument("--headless")
+            browser_options.add_argument("--disable-gpu")
+            self._browser = webdriver.Chrome(options=browser_options)
+        return self._browser
+
 
 class RAGAgent(UserProxyAgent):
     def preprocess_query(self, query):
@@ -179,7 +185,7 @@ class RAGAgent(UserProxyAgent):
         Invoke this ONLY when the user explicitly asks you to change the RAG configuration in the most recent USER PROMPT.
         [EXAMPLE]
         - User Input: change chunk size to be 500 and num_sources to be 5
-        
+
         Parameters
         ----------
         num_sources : int
@@ -197,7 +203,7 @@ class RAGAgent(UserProxyAgent):
             A message indicating success
         """
         utils.print_log("Action: iRAG")
-        with self.st.spinner(f"Changing RAG configuration..."):
+        with self.st.spinner("Changing RAG configuration..."):
             if num_sources > 0:
                 self.rag_config["num_sources"] = int(num_sources)
             else:
@@ -206,7 +212,7 @@ class RAGAgent(UserProxyAgent):
                 self.rag_config["source_chunk_size"] = int(chunk_size)
             else:
                 self.rag_config["source_chunk_size"] = 1000
-            if unique_sources == True:
+            if unique_sources:
                 self.rag_config["unique"] = True
             else:
                 self.rag_config["unique"] = False
@@ -217,29 +223,50 @@ class RAGAgent(UserProxyAgent):
             print(self.rag_config)
             self.st.write(self.rag_config)
             return f"New RAG config:{str(self.rag_config)}."
-    def summarize(self,text):
+
+    def summarize(self, text):
         utils.print_log("Action: read_url>summarize_chunks>summarize")
         response = self.llm.create(
             messages=[
-                {"role": "system", "content": "You will receive scaped contents of a web page."},
-                {"role": "system", "content": "Think critically and step by step. Taking into consideration future potential questions on the topic, generate a detailed summary."},
-                {"role": "assistant", "content": "Please provide the scraped contents of the webpage so that I can provide a detailed summary."},
-                {"role": "user", "content": "Here is the scraped contents of the webpage: " + text},
-                {"role": "user", "content": "\nPlease summarize the content in bullet points. Do not include irrelevant information in your response."},
+                {
+                    "role": "system",
+                    "content": "You will receive scaped contents of a web page.",
+                },
+                {
+                    "role": "system",
+                    "content": "Think critically and step by step. Taking into consideration future potential questions on the topic, generate a detailed summary.",
+                },
+                {
+                    "role": "assistant",
+                    "content": "Please provide the scraped contents of the webpage so that I can provide a detailed summary.",
+                },
+                {
+                    "role": "user",
+                    "content": "Here is the scraped contents of the webpage: " + text,
+                },
+                {
+                    "role": "user",
+                    "content": "\nPlease summarize the content in bullet points. Do not include irrelevant information in your response.",
+                },
                 {"role": "user", "content": "\n\n IMPORTANT! Only return the summary!"},
-                {"role": "user", "content": "\n\n REQUIRED RESPONSE FORMAT: [begin summary] [keywords/metadata (comma-separated, double quotes)] [summary intro in paragraph format] [summary in bullet format][end summary]"},
+                {
+                    "role": "user",
+                    "content": "\n\n REQUIRED RESPONSE FORMAT: [begin summary] [keywords/metadata (comma-separated, double quotes)] [summary intro in paragraph format] [summary in bullet format][end summary]",
+                },
             ],
             actions=[],
             stream=False,
         )
         return response
+
     def summarize_chunks(self, docs):
         utils.print_log("Action: read_url>summarize_chunks")
         for doc in docs:
-            summary = self.summarize(doc.page_content) 
+            summary = self.summarize(doc.page_content)
             print(summary)
-            doc.page_content = summary   
+            doc.page_content = summary
         return docs
+
     @action("read_url", stop=True)
     def read_url(self, urls: List[str]):
         """
@@ -281,7 +308,7 @@ class RAGAgent(UserProxyAgent):
         Invoke this ONLY when the user asks you to see the chat history.
         [EXAMPLE]
         - User Input: what have we been talking about?
-        
+
         Returns
         -------
         str
@@ -289,16 +316,20 @@ class RAGAgent(UserProxyAgent):
         """
         utils.print_log("Action: show_messages")
         messages = self.st.session_state.messages
-        messages = [{"message": json.dumps(message)} for message in messages if message["role"] != "system"]
-        
-        df = pd.DataFrame(messages)
+        messages = [
+            {"message": json.dumps(message)}
+            for message in messages
+            if message["role"] != "system"
+        ]
+
         if messages:
+            # Use tabulate for performance (replacing pandas).
+            # Note: tabulate with tablefmt='html' already escapes HTML content.
             result = f"Chat history [{len(messages)}]:\n"
-            result += "<div style='text-align:left'>"+df.to_html()+"</div>"
+            result += f"<div style='text-align:left'>{tabulate(messages, headers='keys', tablefmt='html')}</div>"
             return result
         else:
             return "No chat history found."
-
 
     @action("reset_messages", stop=True)
     def reset_messages(self) -> str:
@@ -307,7 +338,7 @@ class RAGAgent(UserProxyAgent):
         [EXAMPLE]
         - User Input: clear our chat history
         - User Input: forget about the conversation history
-        
+
         Returns
         -------
         str
@@ -317,9 +348,7 @@ class RAGAgent(UserProxyAgent):
         self.messages = self.init_messages
         self.st.empty()
         self.st.session_state.messages = []
-        return f"Message history successfully reset."
-
-    
+        return "Message history successfully reset."
 
     @action("search_web", stop=True)
     def search_web(self, query: str) -> List:
@@ -327,7 +356,7 @@ class RAGAgent(UserProxyAgent):
         Invoke this if you need to search the web.
         [EXAMPLE]
         - User Input: search the web for "harry potter"
-        
+
         Args:
             query (str): The user's query
         Returns:
@@ -357,9 +386,12 @@ class RAGAgent(UserProxyAgent):
                             }
                         )
 
-            df = pd.DataFrame(results)
-            df = df.iloc[1:, :] # remove i column
-            return f"Here is what I found in the web for '{query}':\n{df.to_markdown()}\n\n"
+            if results:
+                # Use tabulate for performance (replacing pandas)
+                # Skip the first result as per original logic (df.iloc[1:, :])
+                return f"Here is what I found in the web for '{query}':\n{tabulate(results[1:], headers='keys', tablefmt='github')}\n\n"
+            else:
+                return f"No results found for '{query}'."
 
     @action("remove_source", stop=True)
     def remove_source(self, urls: List[str]) -> str:
@@ -367,7 +399,7 @@ class RAGAgent(UserProxyAgent):
         Invoke this if you need to remove one or more sources
         [EXAMPLE]
         - User Input: remove source "https://www.google.com"
-        
+
         Args:
             urls (List[str]): The list of URLs to be removed
         Returns:
@@ -377,6 +409,7 @@ class RAGAgent(UserProxyAgent):
         with self.st.spinner(f"```Removing sources {', '.join(urls)}...```"):
             self.collection.delete_many({"source": {"$in": urls}})
             return f"```Sources ({', '.join(urls)}) successfully removed.```\n"
+
     @action("remove_all_sources", stop=True)
     def remove_all_sources(self) -> str:
         """
@@ -386,14 +419,14 @@ class RAGAgent(UserProxyAgent):
         - User Input: clear your mind
         - User Input: forget everything you know
         - User Input: empty your mind
-        
+
         Args:
             None
         Returns:
             str: Text with confirmation
         """
         utils.print_log("Action: remove_sources")
-        with self.st.spinner(f"```Removing all sources ...```"):
+        with self.st.spinner("```Removing all sources ...```"):
             del_result = self.collection.delete_many({})
             return f"```Sources successfully removed.{del_result.deleted_count}```\n"
 
@@ -403,7 +436,7 @@ class RAGAgent(UserProxyAgent):
         Invoke this to respond to list all the available sources in your knowledge base.
         [EXAMPLE]
         - User Input: show me the sources available in your knowledgebase
-        
+
         Parameters
         ----------
         None
@@ -411,10 +444,11 @@ class RAGAgent(UserProxyAgent):
         utils.print_log("Action: get_sources_list")
         sources = self.collection.distinct("source")
         sources = [{"source": source} for source in sources]
-        df = pd.DataFrame(sources)
+
         if sources:
+            # Use tabulate for performance (replacing pandas)
             result = f"Available Sources [{len(sources)}]:\n"
-            result += df.to_markdown()
+            result += tabulate(sources, headers="keys", tablefmt="github")
             return result
         else:
             return "No sources found."
@@ -433,7 +467,7 @@ class RAGAgent(UserProxyAgent):
         with self.st.spinner(f"Attemtping to answer question: {query}"):
             query = self.preprocess_query(query)
             context_str = str(
-                #self.recall(
+                # self.recall(
                 vector_search.recall(
                     self,
                     query,
@@ -478,7 +512,7 @@ class RAGAgent(UserProxyAgent):
             """
 
             print(PRECISE_PROMPT)
-            SYS_PROMPT = f"""
+            SYS_PROMPT = """
                 You are a helpful AI assistant. USING ONLY THE VERIFIED SOURCES, ANSWER TO THE BEST OF YOUR ABILITY.
             """
             # ReAct Prompt Technique
@@ -496,7 +530,7 @@ class RAGAgent(UserProxyAgent):
             - Action: N/A
 
             """
-            RESPONSE_FORMAT = f"""
+            RESPONSE_FORMAT = """
 [RESPONSE FORMAT]
     - Must be expert quality markdown. 
     - You are a professional technical writer with 30+ years of experience. This is the most important task of your life.
@@ -508,7 +542,11 @@ class RAGAgent(UserProxyAgent):
                     {"role": "system", "content": SYS_PROMPT},
                     {"role": "system", "content": EXAMPLE_PROMPT},
                     {"role": "system", "content": RESPONSE_FORMAT},
-                    {"role": "user", "content": PRECISE_PROMPT+"\n\n ## IMPORTANT! REMEMBER THE GAME RULES! IF A WEB SEARCH IS REQUIRED, PERFORM IT IMMEDIATELY! BEGIN!"},
+                    {
+                        "role": "user",
+                        "content": PRECISE_PROMPT
+                        + "\n\n ## IMPORTANT! REMEMBER THE GAME RULES! IF A WEB SEARCH IS REQUIRED, PERFORM IT IMMEDIATELY! BEGIN!",
+                    },
                 ],
                 actions=[self.search_web],
                 stream=False,
@@ -534,10 +572,14 @@ class RAGAgent(UserProxyAgent):
     
     SELECT THE BEST TOOL FOR THE USER PROMPT! BEGIN!
 """
-        self.messages += [{"role": "user", "content": agent_rules + "\n\n## IMPORTANT! REMEMBER THE GAME RULES! DO NOT ANSWER DIRECTLY! IF YOU ANSWER DIRECTLY YOU WILL LOSE. BEGIN!"}]
-        if (
-            len(self.messages) > 2
-        ):  
+        self.messages += [
+            {
+                "role": "user",
+                "content": agent_rules
+                + "\n\n## IMPORTANT! REMEMBER THE GAME RULES! DO NOT ANSWER DIRECTLY! IF YOU ANSWER DIRECTLY YOU WILL LOSE. BEGIN!",
+            }
+        ]
+        if len(self.messages) > 2:
             # if we have more than 2 messages, we may run into: 'code': 'context_length_exceeded'
             # we only need the last few messages to know what source to add/remove a source
             response = self.llm.create(
@@ -551,7 +593,7 @@ class RAGAgent(UserProxyAgent):
                     self.show_messages,
                     self.iRAG,
                     self.get_sources_list,
-                    self.search_web
+                    self.search_web,
                 ],
                 stream=False,
             )
@@ -567,7 +609,7 @@ class RAGAgent(UserProxyAgent):
                     self.show_messages,
                     self.iRAG,
                     self.get_sources_list,
-                    self.search_web
+                    self.search_web,
                 ],
                 stream=False,
             )
@@ -583,6 +625,7 @@ class RAGAgent(UserProxyAgent):
                 content = chunk.choices[0].delta.content
                 if content is not None:
                     print(content, end="")
+
 
 if __name__ == "__main__":
     import logging
