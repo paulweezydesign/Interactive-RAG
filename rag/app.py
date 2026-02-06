@@ -59,7 +59,7 @@ if prompt := st.chat_input(placeholder="What's up"):
         message_placeholder = st.empty()
         full_response = ""
 
-        if type(response) == str:
+        if isinstance(response, str):
             utils.print_log("Received string response")
             assistant_response = response
 
