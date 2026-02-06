@@ -4,7 +4,11 @@ import streamlit as st
 from bot import RAGAgent
 import utils
 
-st.set_page_config(layout="wide")
+st.set_page_config(
+    layout="wide",
+    page_title="Interactive RAG Agent",
+    page_icon="🤖",
+)
 
 logging.basicConfig(
     filename="app.log",
@@ -24,15 +28,29 @@ def get_agent():
     return RAGAgent(logger, st)
 
 
-font_size = 30
-
-st.markdown(
-    f'<span style="font-size:{font_size}px;">Interactive RAG powered by MongoDB and ActionWeaver</span>',
-    unsafe_allow_html=True,
-)
-st.markdown("----")
+st.title("🤖 Interactive RAG Agent")
+st.markdown("Powered by **MongoDB Atlas** and **ActionWeaver**")
+st.divider()
 
 agent = get_agent()
+
+with st.sidebar:
+    st.title("Settings")
+    if st.button("Clear Chat History"):
+        st.session_state.messages = []
+        agent.messages = agent.init_messages
+        st.rerun()
+
+    st.divider()
+    st.markdown(
+        """
+    ### Capabilities
+    - 🔍 **Search the web**
+    - 📚 **Learn from URLs**
+    - 💬 **Answer questions**
+    - ⚙️ **Configure RAG in real-time**
+    """
+    )
 
 # Initialize chat history
 if "messages" not in st.session_state:
@@ -44,7 +62,7 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # Accept user input
-if prompt := st.chat_input(placeholder="What's up"):
+if prompt := st.chat_input(placeholder="Ask a question or provide a URL to learn from..."):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     # Display user message in chat message container
@@ -52,14 +70,17 @@ if prompt := st.chat_input(placeholder="What's up"):
         st.markdown(prompt)
 
     utils.format_and_print_user_input(prompt)
-    response = agent(prompt)
 
     # Display assistant response in chat message container
     with st.chat_message("assistant"):
+        with st.status("Thinking...", expanded=True) as status:
+            response = agent(prompt)
+            status.update(label="Response generated!", state="complete", expanded=False)
+
         message_placeholder = st.empty()
         full_response = ""
 
-        if type(response) == str:
+        if isinstance(response, str):
             utils.print_log("Received string response")
             assistant_response = response
 
