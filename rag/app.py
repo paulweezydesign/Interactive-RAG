@@ -18,21 +18,22 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-@st.cache_resource
-def get_agent():
+if "agent" not in st.session_state:
     logger.info("Loading RAG Bot ...")
-    return RAGAgent(logger, st)
+    st.session_state.agent = RAGAgent(logger, st)
 
+agent = st.session_state.agent
 
-font_size = 30
+st.title("Interactive RAG Agent 🎨")
+st.markdown("Powered by MongoDB and ActionWeaver")
+st.divider()
 
-st.markdown(
-    f'<span style="font-size:{font_size}px;">Interactive RAG powered by MongoDB and ActionWeaver</span>',
-    unsafe_allow_html=True,
-)
-st.markdown("----")
-
-agent = get_agent()
+with st.sidebar:
+    st.title("Controls")
+    if st.button("Clear Chat History", help="Reset chat history and agent memory"):
+        st.session_state.messages = []
+        agent.messages = agent.init_messages
+        st.rerun()
 
 # Initialize chat history
 if "messages" not in st.session_state:
@@ -44,7 +45,7 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # Accept user input
-if prompt := st.chat_input(placeholder="What's up"):
+if prompt := st.chat_input(placeholder="Ask a question, learn a URL, or change RAG settings..."):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     # Display user message in chat message container
@@ -52,11 +53,12 @@ if prompt := st.chat_input(placeholder="What's up"):
         st.markdown(prompt)
 
     utils.format_and_print_user_input(prompt)
-    response = agent(prompt)
 
     # Display assistant response in chat message container
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
+        message_placeholder.markdown("*(Thinking...)*")
+        response = agent(prompt)
         full_response = ""
 
         if isinstance(response, str):
