@@ -4,7 +4,7 @@ import streamlit as st
 from bot import RAGAgent
 import utils
 
-st.set_page_config(layout="wide")
+st.set_page_config(page_title="Interactive RAG", page_icon="🤖", layout="wide")
 
 logging.basicConfig(
     filename="app.log",
@@ -18,21 +18,33 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-@st.cache_resource
-def get_agent():
-    logger.info("Loading RAG Bot ...")
-    return RAGAgent(logger, st)
-
-
-font_size = 30
-
+st.title("Interactive RAG 🤖")
 st.markdown(
-    f'<span style="font-size:{font_size}px;">Interactive RAG powered by MongoDB and ActionWeaver</span>',
-    unsafe_allow_html=True,
+    "Build and tune your RAG pipeline interactively with **MongoDB Atlas** and **ActionWeaver**."
 )
-st.markdown("----")
+st.divider()
 
-agent = get_agent()
+if "agent" not in st.session_state:
+    st.session_state.agent = RAGAgent(logger, st)
+agent = st.session_state.agent
+
+with st.sidebar:
+    st.title("Settings")
+    if st.button("Clear Conversation", help="Reset chat history and agent state"):
+        st.session_state.messages = []
+        agent.messages = agent.init_messages
+        st.rerun()
+
+    st.divider()
+    st.markdown("### 💡 Quick Tips")
+    st.markdown(
+        """
+    - **Add Sources**: Say `learn https://example.com`
+    - **Search Web**: Say `search the web for [topic]`
+    - **Adjust RAG**: Say `change chunk size to 500` or `use 5 sources`
+    - **List Sources**: Say `show me the sources in my knowledgebase`
+    """
+    )
 
 # Initialize chat history
 if "messages" not in st.session_state:
@@ -44,7 +56,9 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # Accept user input
-if prompt := st.chat_input(placeholder="What's up"):
+if prompt := st.chat_input(
+    placeholder="Ask a question, search the web, or 'learn' a URL..."
+):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     # Display user message in chat message container
@@ -52,11 +66,12 @@ if prompt := st.chat_input(placeholder="What's up"):
         st.markdown(prompt)
 
     utils.format_and_print_user_input(prompt)
-    response = agent(prompt)
 
     # Display assistant response in chat message container
     with st.chat_message("assistant"):
         message_placeholder = st.empty()
+        message_placeholder.markdown("Thinking... 🔍")
+        response = agent(prompt)
         full_response = ""
 
         if isinstance(response, str):
