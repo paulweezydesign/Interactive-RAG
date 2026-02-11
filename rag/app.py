@@ -38,13 +38,17 @@ agent = get_agent()
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+if "processing" not in st.session_state:
+    st.session_state.processing = False
+
 # Display chat messages from history on app rerun
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
 # Accept user input
-if prompt := st.chat_input(placeholder="What's up"):
+if prompt := st.chat_input(placeholder="What's up", disabled=st.session_state.processing):
+    st.session_state.processing = True
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     # Display user message in chat message container
@@ -91,3 +95,5 @@ if prompt := st.chat_input(placeholder="What's up"):
 
     # Add assistant response to chat history
     st.session_state.messages.append({"role": "assistant", "content": full_response})
+    st.session_state.processing = False
+    st.rerun()
