@@ -4,7 +4,7 @@ import streamlit as st
 from bot import RAGAgent
 import utils
 
-st.set_page_config(layout="wide")
+st.set_page_config(layout="wide", page_title="Interactive RAG Agent", page_icon="🤖")
 
 logging.basicConfig(
     filename="app.log",
@@ -18,21 +18,32 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-@st.cache_resource
-def get_agent():
-    logger.info("Loading RAG Bot ...")
-    return RAGAgent(logger, st)
+# Initialize RAG Agent in session state for session isolation
+if "agent" not in st.session_state:
+    with st.status("Initializing RAG Agent...", expanded=True) as status:
+        st.session_state.agent = RAGAgent(logger, st)
+        status.update(label="RAG Agent Ready!", state="complete", expanded=False)
 
+agent = st.session_state.agent
 
-font_size = 30
+# Sidebar with utility functions
+with st.sidebar:
+    st.title("🤖 RAG Settings")
+    st.markdown("---")
+    if st.button("Clear Chat History", use_container_width=True):
+        st.session_state.messages = []
+        if "agent" in st.session_state:
+            st.session_state.agent.messages = st.session_state.agent.init_messages
+        st.rerun()
+    st.markdown("---")
+    st.info(
+        "This agent uses MongoDB and ActionWeaver to provide interactive RAG capabilities."
+    )
 
-st.markdown(
-    f'<span style="font-size:{font_size}px;">Interactive RAG powered by MongoDB and ActionWeaver</span>',
-    unsafe_allow_html=True,
-)
-st.markdown("----")
-
-agent = get_agent()
+# Main interface title
+st.title("🤖 Interactive RAG Agent")
+st.caption("Build and interact with your RAG pipeline in real-time")
+st.divider()
 
 # Initialize chat history
 if "messages" not in st.session_state:
@@ -44,7 +55,9 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # Accept user input
-if prompt := st.chat_input(placeholder="What's up"):
+if prompt := st.chat_input(
+    placeholder="Ask a question, add a URL (e.g. 'learn https://...'), or search the web..."
+):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     # Display user message in chat message container
@@ -52,10 +65,12 @@ if prompt := st.chat_input(placeholder="What's up"):
         st.markdown(prompt)
 
     utils.format_and_print_user_input(prompt)
-    response = agent(prompt)
 
     # Display assistant response in chat message container
     with st.chat_message("assistant"):
+        with st.status("Thinking...") as status:
+            response = agent(prompt)
+            status.update(label="Response ready!", state="complete", expanded=False)
         message_placeholder = st.empty()
         full_response = ""
 
@@ -84,7 +99,9 @@ if prompt := st.chat_input(placeholder="What's up"):
                     full_response += chunk.choices[0].delta.content
 
                 # Add a blinking cursor to simulate typing
-                message_placeholder.markdown(full_response + "▌", unsafe_allow_html=True)
+                message_placeholder.markdown(
+                    full_response + "▌", unsafe_allow_html=True
+                )
 
             agent.messages.append({"role": "assistant", "content": full_response})
             utils.format_and_print_genai_response(full_response)
