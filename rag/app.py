@@ -44,7 +44,9 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # Accept user input
-if prompt := st.chat_input(placeholder="What's up"):
+if prompt := st.chat_input(
+    placeholder="Ask a question, give me a URL to read, or change RAG settings"
+):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     # Display user message in chat message container
