@@ -50,7 +50,7 @@ Storing raw data is accurate, but bulky, slower, and "noisy".
 * Available resources
 
 
-## ![Alt text](./images/rag-agent.png)
+## ![Diagram illustrating the RAG agent's workflow. User input is processed by an LLM agent, which can access a vector store, use tools like web search, and generate responses. The vector store is populated by a data ingestion pipeline that processes documents into chunks and embeddings.](./images/rag-agent.png)
 
 # VIDEO
 
@@ -158,7 +158,7 @@ There are many types of databases that can store these embeddings, each with its
 
 Think of MongoDB as a cake that you can both have and eat. It gives you the power of its language for making queries, Mongo Query Language. It also includes all the great features of MongoDB. On top of that, it lets you store these building blocks (vector embeddings) and do math operations on them, all in one place. This makes MongoDB Atlas a one-stop shop for all your vector embedding needs!
 
-![](https://www.mongodb.com/developer/_next/image/?url=https%3A%2F%2Fimages.contentstack.io%2Fv3%2Fassets%2Fblt39790b633ee0d5a7%2Fbltb482d06c8f1f0674%2F65398a092c3581197ab3b07f%2Fimage3.png&w=1920&q=75)
+![MongoDB Atlas architecture diagram showing how it supports generative AI applications. Data is ingested from various sources, processed into vector embeddings, and stored in MongoDB Atlas. The platform then supports semantic search and vector search, which feeds into large language models to power applications like chatbots, content generation, and summarization.](https://www.mongodb.com/developer/_next/image/?url=https%3A%2F%2Fimages.contentstack.io%2Fv3%2Fassets%2Fblt39790b633ee0d5a7%2Fbltb482d06c8f1f0674%2F65398a092c3581197ab3b07f%2Fimage3.png&w=1920&q=75)
 
 ### Detailed Breakdown:  
    
@@ -298,7 +298,7 @@ Actions are functions that an agent can invoke. There are two important design c
 
 Without thinking through both, you won’t be able to build a working agent. If you don’t give the agent access to a correct set of actions, it will never be able to accomplish the objectives you give it. If you don’t describe the actions well, the agent won’t know how to use them properly.
 
-![](./images/llm_agent.png)
+![Flowchart depicting an LLM agent's decision-making process. The agent takes user input and uses a chain of thought to decide whether to respond directly or use a tool. If a tool is used, the action and its observation are fed back into the loop to generate the final response.](./images/llm_agent.png)
 
 An LLM is then called, resulting in either a response to the user OR action(s) to be taken. If it is determined that a response is required, then that is passed to the user, and that cycle is finished. If it is determined that an action is required, that action is then taken, and an observation (action result) is made. That action & corresponding observation are added back to the prompt (we call this an “agent scratchpad”), and the loop resets, ie. the LLM is called again (with the updated agent scratchpad).
 
@@ -308,7 +308,7 @@ In this demo we will only be using `stop=True`
 
 ActionWeaver also supports more complex loop control using `orch_expr(SelectOne[actions])` and `orch_expr(RequireNext[actions])`, but I'll leave that for PART II.
 
-![](./images/scale_tools.png)
+![Diagram showing how ActionWeaver allows an LLM to scale its tool usage. The LLM can access a variety of tools, including a vector database, Google Search, Wikipedia, and social media platforms like Slack and Twitter.](./images/scale_tools.png)
 
 The ActionWeaver agent framework is an AI application framework that puts function-calling at its core. It is designed to enable seamless merging of traditional computing systems with the powerful reasoning capabilities of Language Model Models. 
 ActionWeaver is built around the concept of LLM function calling, while popular frameworks like Langchain and Haystack are built around the concept of pipelines. 
@@ -331,7 +331,7 @@ ActionWeaver is built around the concept of LLM function calling, while popular 
 - Parallel function calling allows multiple function calls to be performed together, reducing round-trips with the API.
 - Tokens are used to inject functions into the system message and count against the model's context limit and billing.
 
-![](./images/function_calling.png)
+![Diagram explaining the OpenAI function calling process. A user prompt is sent to the model, which then decides if a function call is needed. If so, it returns a JSON object with the function name and arguments. The application code executes the function and sends the result back to the model, which then generates a final response to the user.](./images/function_calling.png)
 
 Read more at: https://thinhdanggroup.github.io/function-calling-openai/
 
@@ -428,25 +428,25 @@ In summary, both CoT and ReAct play a crucial role in these examples. CoT enable
 
 Let's start by asking our agent a question. In this case, **"What is a mango?"**. The first thing that will happen is, it will try to "recall" any relevant information using vector embedding similarity. It will then formulate a response with the content it "recalled", or will perform a web search. Since our knowledgebase is currently empty, we need to add some sources before it can formulate a response.
 
-![DEMO - Ask a Question](./images/ask_question.png)
+![Screenshot of the chatbot interface. A user asks 'What is a mango?'. The agent responds that it needs to add sources to its knowledge base and provides Google search results with buttons to 'learn' each source.](./images/ask_question.png)
 
 Since the bot is unable to provide an answer using the content in the vector database, it initiated a Google search to find relevant information. We can now tell it which sources it should "learn". In this case, we'll tell it to learn the first two sources from the search results.
 
 ## Tell the bot which results to learn from: 
 
-![DEMO - Add a source](./images/add_sources.png)
+![Screenshot showing the user instructing the bot to 'learn the first two sources'. The agent confirms that it is analyzing the content from the URLs.](./images/add_sources.png)
 
 ## Change RAG strategy
 
 Next, let's modify the RAG strategy! Let's make it only use one source, and have it use a small chunk size of 500 characters.
 
-![DEMO - Change RAG strategy part 1](./images/mod_rag.png)
+![Screenshot of the user changing the RAG strategy to use a smaller chunk size. The agent's response shows that it retrieved a chunk but could not generate a response, leading it to perform another web search.](./images/mod_rag.png)
 
 Notice that though it was able to retrieve a chunk, with a fairly high relevance score, it was not able to generate a response because the chunk size was too small and the chunk content was not relevant enough to formulate a response. Since it could not generate a response with the small chunk, it performed a web search on the user's behalf. 
 
 Let's see what happens if we increase the chunk size to be 3000 characters instead of 500. 
 
-![DEMO - Change RAG strategy part 2](./images/mod_rag-2.png)
+![Screenshot of the user increasing the chunk size. With the larger chunk, the agent is now able to successfully answer the question 'What is a mango?' based on the content from the vector database.](./images/mod_rag-2.png)
 
 Now, with a larger chunk size, it was able to accurately formulate the response using the knowledge from the vector database! 
 
@@ -454,7 +454,7 @@ Now, with a larger chunk size, it was able to accurately formulate the response 
 
 Let's see what's available in the knowledge base of the Agent by asking it: **What sources do you have in your knowledge base?**
 
-![DEMO - List all sources](./images/list_sources.png)
+![Screenshot of the user asking the agent to list the sources in its knowledge base. The agent returns a list of two URLs that it has learned from.](./images/list_sources.png)
 
 ## Remove a source of information
 
@@ -470,7 +470,7 @@ USER: what sources do you have in your knowledge base?
 AGENT: {response}
 USER: remove all those sources please
 ```
-![DEMO - Remove source](./images/remove_sources.png)
+![Screenshot showing the user asking the agent to remove all sources. The agent confirms that the sources have been removed from the knowledge base.](./images/remove_sources.png)
 
 This demo has provided a glimpse into the inner workings of our AI agent, showcasing its ability to learn and respond to user queries in an interactive manner. We've witnessed how it seamlessly combines its internal knowledge base with real-time web search to deliver comprehensive and accurate information. The potential of this technology is vast, extending far beyond simple question-answering. None of this would be possible without the magic of the **Function Calling API**.
 
