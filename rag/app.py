@@ -37,6 +37,8 @@ agent = get_agent()
 # Initialize chat history
 if "messages" not in st.session_state:
     st.session_state.messages = []
+if "thinking" not in st.session_state:
+    st.session_state.thinking = False
 
 # Display chat messages from history on app rerun
 for message in st.session_state.messages:
@@ -44,13 +46,19 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 # Accept user input
-if prompt := st.chat_input(placeholder="What's up"):
+if prompt := st.chat_input(
+    placeholder="What's up", disabled=st.session_state.thinking
+):
     # Add user message to chat history
     st.session_state.messages.append({"role": "user", "content": prompt})
     # Display user message in chat message container
     with st.chat_message("user"):
         st.markdown(prompt)
+    st.session_state.thinking = True
+    st.rerun()
 
+if st.session_state.thinking:
+    prompt = st.session_state.messages[-1]["content"]
     utils.format_and_print_user_input(prompt)
     response = agent(prompt)
 
@@ -84,10 +92,13 @@ if prompt := st.chat_input(placeholder="What's up"):
                     full_response += chunk.choices[0].delta.content
 
                 # Add a blinking cursor to simulate typing
-                message_placeholder.markdown(full_response + "▌", unsafe_allow_html=True)
+                message_placeholder.markdown(
+                    full_response + "▌", unsafe_allow_html=True
+                )
 
             agent.messages.append({"role": "assistant", "content": full_response})
             utils.format_and_print_genai_response(full_response)
 
     # Add assistant response to chat history
     st.session_state.messages.append({"role": "assistant", "content": full_response})
+    st.session_state.thinking = False
