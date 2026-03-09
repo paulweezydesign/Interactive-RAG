@@ -78,6 +78,8 @@ if prompt := st.chat_input(placeholder="Ask a question or provide a URL to learn
             status.update(label="Response generated!", state="complete", expanded=False)
 
         message_placeholder = st.empty()
+        message_placeholder.markdown("Thinking...")
+        response = agent(prompt)
         full_response = ""
 
         if isinstance(response, str):
