@@ -54,7 +54,9 @@ with st.sidebar:
 
 # Initialize chat history
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    st.session_state.messages = [
+        {"role": "assistant", "content": "👋 Hi! I'm an interactive RAG agent. Ask me a question to get started."}
+    ]
 
 # Display chat messages from history on app rerun
 for message in st.session_state.messages:
